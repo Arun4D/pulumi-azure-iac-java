@@ -1,0 +1,7 @@
+name: pulumi-azure-iac-java
+runtime: java
+description: A minimal Azure Native Java Pulumi program
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: ""
