@@ -1,2 +1,11 @@
 config:
   azure-native:location: WestUS2
+  location: WestUS2
+  env: dev
+  tags:
+    unit: core
+    cost-center: Infra
+  rg :
+    inf : ad-ukw-inf-rg
+    nw  : ad-ukw-nw-rg
+

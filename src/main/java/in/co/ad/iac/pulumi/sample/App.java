@@ -1,61 +1,38 @@
 package in.co.ad.iac.pulumi.sample;
 
 import com.pulumi.Pulumi;
-import com.pulumi.asset.FileAsset;
 import com.pulumi.azurenative.resources.ResourceGroup;
-import com.pulumi.azurenative.storage.*;
-import com.pulumi.azurenative.storage.enums.Kind;
-import com.pulumi.azurenative.storage.enums.SkuName;
-import com.pulumi.azurenative.storage.inputs.ListStorageAccountKeysArgs;
-import com.pulumi.azurenative.storage.inputs.SkuArgs;
-import com.pulumi.azurenative.storage.outputs.EndpointsResponse;
-import com.pulumi.core.Output;
+import com.pulumi.azurenative.resources.ResourceGroupArgs;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 public class App {
     public static void main(String[] args) {
         Pulumi.run(ctx -> {
-            var resourceGroup = new ResourceGroup("resourceGroup");
-            var storageAccount = new StorageAccount("sa", StorageAccountArgs.builder()
-                    .resourceGroupName(resourceGroup.name())
-                    .sku(SkuArgs.builder()
-                            .name(SkuName.Standard_LRS)
-                            .build())
-                    .kind(Kind.StorageV2)
-                    .build());
+            var config = ctx.config();
 
-            var staticWebsite = new StorageAccountStaticWebsite("staticWebsite",
-                    StorageAccountStaticWebsiteArgs.builder()
-                            .accountName(storageAccount.name())
-                            .resourceGroupName(resourceGroup.name())
-                            .indexDocument("index.html")
-                            .build());
+            String location = config.get("location").orElseThrow();
+            String environment = config.get("env").orElseThrow();
+            var tags = config.getObject("tags", Map.class).orElseGet(() -> Map.of("env", environment));
+            var rg = config.getObject("rg", Map.class);
 
-            // Upload the file
-            var index_html = new Blob("index.html", BlobArgs.builder()
-                    .resourceGroupName(resourceGroup.name())
-                    .accountName(storageAccount.name())
-                    .containerName(staticWebsite.containerName())
-                    .source(new FileAsset("index.html"))
-                    .contentType("text/html")
-                    .build());
+            if (rg.isPresent()) {
+                @SuppressWarnings("unchecked")
+                var rgList = createRg(rg.get(), location, tags);
+                ctx.output(rgList);
+            }
 
-            var primaryStorageKey = getStorageAccountPrimaryKey(
-                    resourceGroup.name(),
-                    storageAccount.name());
-
-            ctx.export("primaryStorageKey", primaryStorageKey);
-            ctx.export("staticEndpoint", storageAccount.primaryEndpoints()
-                    .applyValue(EndpointsResponse::web));
         });
     }
 
-    private static Output<String> getStorageAccountPrimaryKey(Output<String> resourceGroupName,
-                                                              Output<String> accountName) {
-        return StorageFunctions.listStorageAccountKeys(ListStorageAccountKeysArgs.builder()
-                                                       .resourceGroupName(resourceGroupName)
-                                                       .accountName(accountName)
-                                                       .build())
-            .applyValue(r -> r.keys().get(0).value())
-            .asSecret();
+    private static  List<ResourceGroup> createRg(Map<String, String> rgs, String location, Map<String, String> tags) {
+        return rgs.values().stream().map(s -> createRg(s, location, tags)).collect(Collectors.toList());
+    }
+
+
+    private static ResourceGroup createRg(String name, String location, Map<String, String> tags) {
+        return new ResourceGroup(name, ResourceGroupArgs.builder().resourceGroupName(name).location(location).tags(tags).build());
     }
 }
