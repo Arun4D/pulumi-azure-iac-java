@@ -8,7 +8,6 @@ import com.pulumi.azurenative.network.VirtualNetworkArgs;
 import com.pulumi.azurenative.network.inputs.AddressSpaceArgs;
 import com.pulumi.azurenative.resources.ResourceGroup;
 import com.pulumi.azurenative.resources.ResourceGroupArgs;
-import com.pulumi.core.Output;
 import com.pulumi.resources.CustomResourceOptions;
 import com.pulumi.resources.Resource;
 
@@ -25,33 +24,44 @@ public class App {
             var tags = config.getObject("tags", Map.class).orElseGet(() -> Map.of("env", environment));
             var rg = config.getObject("rg", Map.class);
 
-            var rgConfig = rg.orElseThrow(() -> new IllegalStateException("Resource Group Config not present"));
+            @SuppressWarnings("unchecked")
+            Map<String, String> resourceGroupMap = rg.orElseThrow(() -> new NoSuchElementException("Resource Group mapping not found."));
+            List<String> rgNames = new ArrayList<>(resourceGroupMap.values());
 
-            List<ResourceGroup> rgList = createRgList(rgConfig, location, tags);
+            @SuppressWarnings("unchecked")
+            List<ResourceGroup> rgList = createRgList(rgNames, location, tags);
+
             ctx.output(rgList);
 
             var vnetConfig = config.getObject("vnet", Map.class);
             String vnetName = vnetConfig.isPresent() ? String.valueOf(vnetConfig.get().get("name")) : environment + "-vnet";
             var vnetAddressSpaceOpt = Optional.ofNullable(vnetConfig.isPresent() && vnetConfig.get().containsKey("address_space") ? vnetConfig.get().get("address_space") : null);
             String vnetRg = vnetConfig.isPresent() ? String.valueOf(vnetConfig.get().get("rg")) : rgList.get(0).name().toString();
+            @SuppressWarnings("unchecked")
+            List<String> vnetAddressSpace = (List<String>) vnetAddressSpaceOpt.orElseThrow(() -> new NoSuchElementException("No vnet address_space value found in the config."));
 
             @SuppressWarnings("unchecked")
-            List<String> vnetAddressSpace = (List<String>) vnetAddressSpaceOpt.orElseThrow(() -> new NoSuchElementException("No vnet address_space value present"));
             var vnet = createVnet(vnetName, vnetAddressSpace, location, vnetRg, tags, getResources(rgList));
+
             ctx.output(vnet);
 
             var subnetConfig = config.getObject("subnet", Map.class);
-            String nwRg = String.valueOf(rg.get().get("nw"));
-            Map<String, List<String>> subnetConfigMap = subnetConfig.isPresent() ? subnetConfig.get() : null;
-            Optional<ResourceGroup> nwResourceGroupOpt = rgList.stream().filter(x -> x.name().equals(nwRg)).findFirst();
-            ResourceGroup nwResourceGroup = nwResourceGroupOpt.orElseThrow(() -> new IllegalStateException("nw Resource Group  not present"));
-            List<Subnet> subnets = subnetConfigMap.entrySet().stream().map(entry -> createSubnet(entry.getKey(), entry.getValue(), nwResourceGroup, vnet, getResources((List<? extends Resource>) List.of(vnet), rgList))).collect(Collectors.toList());
+            Optional<String> nwRgOpt = resourceGroupMap.entrySet().stream().filter(rgLocal -> rgLocal.getKey().equals("nw")).map(Map.Entry::getValue).findFirst();
+            String nwRg = nwRgOpt.orElseThrow(() -> new NoSuchElementException("nw resource group not found."));
+            @SuppressWarnings("unchecked")
+            Map<String, List<String>> subnetConfigMap = subnetConfig.orElseThrow(() -> new NoSuchElementException("Subnet value not found in the config."));
+            Optional<ResourceGroup> nwResourceGroupOpt = rgList.stream().filter(rgLocal -> rgLocal.pulumiResourceName().equals(nwRg)).findFirst();
+            ResourceGroup nwResourceGroup = nwResourceGroupOpt.orElseThrow(() -> new IllegalStateException("nw Resource Group not found after creating resources."));
+            List<Resource> dependsOnList = getResources(List.of(vnet), rgList);
+
+            List<Subnet> subnets = subnetConfigMap.entrySet().stream().map(entry -> createSubnet(entry.getKey(), entry.getValue(), nwResourceGroup, vnet, dependsOnList)).collect(Collectors.toList());
+
             ctx.output(subnets);
         });
     }
 
-    private static List<ResourceGroup> createRgList(Map<String, String> rgs, String location, Map<String, String> tags) {
-        return rgs.values().stream().map(s -> createRg(s, location, tags)).collect(Collectors.toList());
+    private static List<ResourceGroup> createRgList(List<String> rgs, String location, Map<String, String> tags) {
+        return rgs.stream().map(s -> createRg(s, location, tags)).collect(Collectors.toList());
     }
 
 
@@ -71,7 +81,7 @@ public class App {
 
     @SafeVarargs
     private static List<Resource> getResources(List<? extends Resource>... dependsOn) {
-        return Arrays.stream(dependsOn).flatMap(Collection::stream).map(x-> (Resource)x).collect(Collectors.toList());
+        return Arrays.stream(dependsOn).flatMap(Collection::stream).map(x -> (Resource) x).collect(Collectors.toList());
     }
 
     private static Subnet createSubnet(String name, List<String> subnetAddress, ResourceGroup rg, VirtualNetwork vnet, List<Resource> dependsOn) {
