@@ -42,7 +42,8 @@ public class App {
             var subnetConfig = config.getObject("subnet", Map.class);
             String nwRg = String.valueOf(rg.get().get("nw"));
             Map<String, List<String>> subnetConfigMap = subnetConfig.isPresent() ? subnetConfig.get() : null;
-            List<Subnet> subnets = subnetConfigMap.entrySet().stream().map(entry -> createSubnet(entry.getKey(), entry.getValue(), nwRg, vnetName, List.of(vnet))).collect(Collectors.toList());
+
+            List<Subnet> subnets = subnetConfigMap.entrySet().stream().map(entry -> createSubnet(entry.getKey(), entry.getValue(), nwRg, vnetName, vnet)).collect(Collectors.toList());
             ctx.output(subnets);
         });
     }
@@ -56,9 +57,9 @@ public class App {
         return new ResourceGroup(name, ResourceGroupArgs.builder().resourceGroupName(name).location(location).tags(tags).build());
     }
 
-    private static VirtualNetwork createVnet(String name, List<String> addressSpaces, String location, String rgName, Map<String, String> tags, List<ResourceGroup> dependsOn) {
+    private static VirtualNetwork createVnet(String name, List<String> addressSpaces, String location, String rgName, Map<String, String> tags, List<ResourceGroup > dependsOn) {
 
-        List<Resource> resources = dependsOn.stream().map(Resource::pulumiChildResources).flatMap(Set::stream).collect(Collectors.toList());
+        List<Resource> resources = dependsOn.stream().map(x -> (Resource)x).collect(Collectors.toList());
         return new VirtualNetwork(name, VirtualNetworkArgs.builder()
                 .addressSpace(AddressSpaceArgs.builder().addressPrefixes(addressSpaces).build())
                 .location(location)
@@ -67,7 +68,7 @@ public class App {
                 .build(), CustomResourceOptions.builder().dependsOn(resources).build());
     }
 
-    private static Subnet createSubnet(String name, List<String> subnetAddress, String rgName,String vnetName, List<Resource> dependsOn) {
+    private static Subnet createSubnet(String name, List<String> subnetAddress, String rgName, String vnetName, VirtualNetwork dependsOn) {
 
         return new Subnet(name + "-snet" , SubnetArgs.builder().addressPrefixes(subnetAddress).resourceGroupName(rgName).subnetName(name).virtualNetworkName(vnetName).build(), CustomResourceOptions.builder().dependsOn(dependsOn).build());
     }
