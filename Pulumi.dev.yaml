@@ -5,7 +5,20 @@ config:
   tags:
     unit: core
     cost-center: Infra
-  rg :
-    inf : ad-ukw-inf-rg
-    nw  : ad-ukw-nw-rg
+  rg:
+    inf: ad-ukw-inf-rg
+    nw: ad-ukw-nw-rg
 
+  vnet:
+    name: avs-net
+    rg: ad-ukw-nw-rg
+    address_space:
+      - 192.168.1.0/24
+
+  subnet:
+    gateway:
+      - 192.168.1.0/27
+    bastion:
+      - 192.168.1.64/26
+    jump-box:
+      - 192.168.1.128/25
