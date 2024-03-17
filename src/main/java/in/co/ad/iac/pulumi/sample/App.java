@@ -8,6 +8,7 @@ import com.pulumi.azurenative.network.VirtualNetworkArgs;
 import com.pulumi.azurenative.network.inputs.AddressSpaceArgs;
 import com.pulumi.azurenative.resources.ResourceGroup;
 import com.pulumi.azurenative.resources.ResourceGroupArgs;
+import com.pulumi.core.Output;
 import com.pulumi.resources.CustomResourceOptions;
 import com.pulumi.resources.Resource;
 
@@ -36,14 +37,15 @@ public class App {
 
             @SuppressWarnings("unchecked")
             List<String> vnetAddressSpace = (List<String>) vnetAddressSpaceOpt.orElseThrow(() -> new NoSuchElementException("No vnet address_space value present"));
-            var vnet = createVnet(vnetName, vnetAddressSpace, location, vnetRg, tags, rgList);
+            var vnet = createVnet(vnetName, vnetAddressSpace, location, vnetRg, tags, getResources(rgList));
             ctx.output(vnet);
 
             var subnetConfig = config.getObject("subnet", Map.class);
             String nwRg = String.valueOf(rg.get().get("nw"));
             Map<String, List<String>> subnetConfigMap = subnetConfig.isPresent() ? subnetConfig.get() : null;
-
-            List<Subnet> subnets = subnetConfigMap.entrySet().stream().map(entry -> createSubnet(entry.getKey(), entry.getValue(), nwRg, vnetName, vnet)).collect(Collectors.toList());
+            Optional<ResourceGroup> nwResourceGroupOpt = rgList.stream().filter(x -> x.name().equals(nwRg)).findFirst();
+            ResourceGroup nwResourceGroup = nwResourceGroupOpt.orElseThrow(() -> new IllegalStateException("nw Resource Group  not present"));
+            List<Subnet> subnets = subnetConfigMap.entrySet().stream().map(entry -> createSubnet(entry.getKey(), entry.getValue(), nwResourceGroup, vnet, getResources((List<? extends Resource>) List.of(vnet), rgList))).collect(Collectors.toList());
             ctx.output(subnets);
         });
     }
@@ -57,19 +59,32 @@ public class App {
         return new ResourceGroup(name, ResourceGroupArgs.builder().resourceGroupName(name).location(location).tags(tags).build());
     }
 
-    private static VirtualNetwork createVnet(String name, List<String> addressSpaces, String location, String rgName, Map<String, String> tags, List<ResourceGroup > dependsOn) {
+    private static VirtualNetwork createVnet(String name, List<String> addressSpaces, String location, String rgName, Map<String, String> tags, List<Resource> dependsOn) {
 
-        List<Resource> resources = dependsOn.stream().map(x -> (Resource)x).collect(Collectors.toList());
         return new VirtualNetwork(name, VirtualNetworkArgs.builder()
                 .addressSpace(AddressSpaceArgs.builder().addressPrefixes(addressSpaces).build())
                 .location(location)
                 .resourceGroupName(rgName)
                 .tags(tags)
-                .build(), CustomResourceOptions.builder().dependsOn(resources).build());
+                .build(), CustomResourceOptions.builder().dependsOn(dependsOn).build());
     }
 
-    private static Subnet createSubnet(String name, List<String> subnetAddress, String rgName, String vnetName, VirtualNetwork dependsOn) {
+    @SafeVarargs
+    private static List<Resource> getResources(List<? extends Resource>... dependsOn) {
+        return Arrays.stream(dependsOn).flatMap(Collection::stream).map(x-> (Resource)x).collect(Collectors.toList());
+    }
 
-        return new Subnet(name + "-snet" , SubnetArgs.builder().addressPrefixes(subnetAddress).resourceGroupName(rgName).subnetName(name).virtualNetworkName(vnetName).build(), CustomResourceOptions.builder().dependsOn(dependsOn).build());
+    private static Subnet createSubnet(String name, List<String> subnetAddress, ResourceGroup rg, VirtualNetwork vnet, List<Resource> dependsOn) {
+
+        return new Subnet(name + "-snet",
+                SubnetArgs.builder()
+                        .addressPrefixes(subnetAddress)
+                        .resourceGroupName(rg.name())
+                        .subnetName(name)
+                        .virtualNetworkName(vnet.name())
+                        .build(),
+                CustomResourceOptions.builder()
+                        .dependsOn(dependsOn).build()
+        );
     }
 }
